@@ -23,9 +23,7 @@ export default class Button {
     button.push(...toButton(list,3))
 
     list = [
-      { label: '修仙', callback: `/修仙` },
       { label: '抽卡', callback: `/抽卡` },
-      { label: '链接', callback: `/链接` },
       { label: '求签', callback: `/求签` },
     ]
     button.push(...Bot.Button(list,4))
@@ -33,18 +31,11 @@ export default class Button {
     list = [
       { label: '原神面板', data: `/原神更新面板` },
       { label: '星铁面板', data: `/星铁更新面板` },
-      { label: '轻量游戏', callback: `小游戏菜单` },
-            
-      { label: '米社签到', data: `/米游社全部签到` },
-      { label: '使用教程', callback: `说：“必须@我才可以收到消息哦，复制和其它收不到的。\r发送/可唤出我。\r#是原神指令，*是星铁指令。\r有问题点击'反馈问题'询问”` },
-      { label: '机器人公告', callback: `机器人公告` },
     ]
     button.push(...Bot.Button(list,3))
 
     list = [
-      { label: '添加我', data: `https://qun.qq.com/qunpro/robot/qunshare?robot_uin=3889002097&robot_appid=102077936`, ActionType: `0` },
-      { label: '赞助我', data: `https://afdian.net/a/QQBot`, ActionType: `0` },
-      { label: '反馈问题', data: `https://qm.qq.com/q/nQbNKf0JaM`, ActionType: `0` },
+      { label: '添加我', data: ``, ActionType: `0` },
     ]
     button.push(...toButton(list,3))
 
