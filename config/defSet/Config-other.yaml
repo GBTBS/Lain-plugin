@@ -16,4 +16,4 @@ DelFileCron: 0 4 * * *
 recordGroup_id: 
 
 # QQBotdau统计
-QQBotdau: false
+QQBotdau: true
