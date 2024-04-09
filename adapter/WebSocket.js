@@ -10,6 +10,7 @@ class WebSocket {
   constructor () {
     this.port = Cfg.port
     this.path = {
+      '/onebot/v11/ws': LagrangeCore,
       '/Shamrock': shamrock,
       '/ComWeChat': ComWeChat,
       '/LagrangeCore': LagrangeCore

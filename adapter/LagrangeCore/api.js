@@ -365,9 +365,10 @@ let api = {
   * @param {number} group_id - 群号
   * @param {string} file - 本地文件路径
   * @param {string} name - 储存名称
+  * @param {string} folder - 目标文件夹 默认群文件根目录
   */
-  async upload_group_file (id, group_id, file, name) {
-    const params = { group_id, file, name }
+  async upload_group_file (id, group_id, file, name, folder = '/') {
+    const params = { group_id, file, name, folder }
     return await this.SendApi(id, 'upload_group_file', params)
   },
 
@@ -486,7 +487,7 @@ let api = {
     return await this.SendApi(id, 'get_group_msg_history', params)
   },
 
-  
+
   /**
   * 获取好友历史消息
   * @param {string} id - 机器人QQ 通过e.bot、Bot调用无需传入
@@ -653,6 +654,17 @@ let api = {
   },
 
   /**
+   * 上传合并转发
+   * @param {string} id - 机器人QQ 通过e.bot、Bot调用无需传入
+   * @param {number} group_id - 发送到的目标群号
+   * @param {message[]} messages  - 合并转发消息集
+   */
+  async send_forward_msg (id, group_id, messages) {
+    const params = { messages }
+    return await this.SendApi(id, 'send_forward_msg', params)
+  },
+
+  /**
   * 发送群聊合并转发
   * @param {string} id - 机器人QQ 通过e.bot、Bot调用无需传入
   * @param {number} group_id - 发送到的目标群号
@@ -691,7 +703,7 @@ let api = {
   * @param {object} message - 发送内容
   * @param {string} raw_message - 发送内容日志
   */
-  async send_private_msg (uin, user_id, message, raw_message, node) {
+  async send_private_msg (uin, user_id, message, raw_message, node, content) {
     let user_name
     try {
       user_name = Bot[uin].fl.get(user_id)?.user_name
@@ -704,8 +716,15 @@ let api = {
 
     let res
     if (node) {
-      const id = await this.SendApi(uin, 'send_private_forward_msg', { user_id, messages: message.map(i => i.data) })
-      res = await this.SendApi(uin, 'send_private_msg', { user_id, message: { type: 'forward', data: { id } } })
+      res = await this.SendApi(uin, 'send_private_forward_msg', { user_id, messages: message.map(i => i.data) })
+    } else if (content) {
+      const message = {
+        type: 'longmsg',
+        data: {
+          id: content
+        }
+      }
+      res = await this.SendApi(uin, 'send_private_msg', { user_id, message })
     } else {
       const params = { user_id, message }
       res = await this.SendApi(uin, 'send_private_msg', params)
@@ -725,7 +744,7 @@ let api = {
   * @param {object} message - 发送内容
   * @param {string} raw_message - 发送内容日志
   */
-  async send_group_msg (uin, group_id, message, raw_message, node) {
+  async send_group_msg (uin, group_id, message, raw_message, node, content) {
     let group_name
     try {
       group_name = Bot[uin].gl.get(group_id)?.group_name
@@ -738,8 +757,15 @@ let api = {
 
     let res
     if (node) {
-      const id = await this.SendApi(uin, 'send_group_forward_msg', { group_id, messages: message.map(i => i.data) })
-      res = await this.SendApi(uin, 'send_group_msg', { group_id, message: { type: 'forward', data: { id } } })
+      res = await this.SendApi(uin, 'send_group_forward_msg', { group_id, messages: message.map(i => i.data) })
+    } else if (content) {
+      const message = {
+        type: 'longmsg',
+        data: {
+          id: content
+        }
+      }
+      res = await this.SendApi(uin, 'send_group_msg', { group_id, message })
     } else {
       const params = { group_id, message }
       res = await this.SendApi(uin, 'send_group_msg', params)

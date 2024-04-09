@@ -50,7 +50,7 @@ export default async function stdin () {
   await common.init('Lain:restart:stdin')
 }
 
-function msg (msg) {
+export function msg (msg) {
   const user_id = 55555
   const time = Date.now() / 1000
 

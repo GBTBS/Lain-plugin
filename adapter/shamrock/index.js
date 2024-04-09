@@ -1,9 +1,12 @@
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 import { WebSocketServer } from 'ws'
 import common from '../../lib/common/common.js'
 import api from './api.js'
 import { faceMap, pokeMap } from '../../model/shamrock/face.js'
+import Button from '../QQBot/plugins.js'
+import sizeOf from 'image-size'
 
 class Shamrock {
   constructor (bot, request) {
@@ -30,7 +33,10 @@ class Shamrock {
     /** debug日志 */
     common.debug(this.id, '[ws] received -> ', JSON.stringify(data))
     /** 带echo事件为主动请求得到的响应，另外保存 */
-    if (data?.echo) return lain.echo.set(data.echo, data)
+    if (data?.echo) {
+      lain.echo[data.echo] = data
+      return
+    }
     try {
       /** 处理事件 */
       this[data?.post_type](data)
@@ -327,7 +333,7 @@ class Shamrock {
       stat: { start_time: Date.now() / 1000, recv_msg_cnt: 0 },
       apk: { display: this.QQVersion.split(' ')[0], version: this.QQVersion.split(' ')[1] },
       version: { id: 'shamrock', name: '三叶草', version: this.version.replace('Shamrock/', '') },
-      // sendApi: async (action, params) => await this.sendApi(action, params),
+      sendApi: async (action, params) => await this.sendApi(action, params),
       pickMember: (group_id, user_id) => this.pickMember(group_id, user_id),
       pickUser: (user_id) => this.pickFriend(Number(user_id)),
       pickFriend: (user_id) => this.pickFriend(Number(user_id)),
@@ -464,7 +470,6 @@ class Shamrock {
       let gml = new Map()
       let memberList = await api.get_group_member_list(id, groupId)
       for (const user of memberList) {
-        user.card = user.nickname
         user.uin = this.id
         gml.set(user.user_id, user)
       }
@@ -492,7 +497,7 @@ class Shamrock {
 
     if (friendList && typeof friendList === 'object') {
       for (let i of friendList) {
-        i.nickname = i.user_name || i.user_displayname || i.user_remark
+        i.nickname = i.user_remark || i.user_displayname || i.user_name
         i.uin = this.id
         /** 给锅巴用 */
         Bot.fl.set(i.user_id, i)
@@ -698,7 +703,6 @@ class Shamrock {
     if (user_id == '88888' || user_id == 'stdin') user_id = this.id
     try {
       let member = await api.get_group_member_info(this.id, group_id, user_id, refresh)
-      member.card = member.nickname
       return member
     } catch {
       return { card: 'shamrock', nickname: 'shamrock' }
@@ -737,7 +741,7 @@ class Shamrock {
 
     const content = (await Promise.all(msg.map(async i => {
       try {
-        let shamrock = (await this.getShamrock(i)).message[0]
+        let shamrock = (await this.getShamrock(i, false)).message[0]
         return {
           type: 'node',
           data: {
@@ -791,29 +795,19 @@ class Shamrock {
         } catch {
           group_name = group_id
         }
-        e.log_message && common.info(this.id, `<群:${group_name || group_id}><用户:${sender?.nickname || sender?.card}(${user_id})> -> ${e.log_message}`)
+        e.log_message && common.info(this.id, `<群:${group_name || group_id}><用户:${sender?.card || sender?.nickname}(${user_id})> -> ${e.log_message}`)
         /** 手动构建member */
         e.member = {
-          info: {
-            group_id,
-            user_id,
-            nickname: sender?.card,
-            last_sent_time: data?.time
-          },
-          card: sender?.card,
-          nickname: sender?.nickname,
-          group_id,
+          ...this.pickMember(group_id, user_id),
           is_admin: sender?.role === 'admin' || false,
           is_owner: sender?.role === 'owner' || false,
-          /** 获取头像 */
-          getAvatarUrl: (size = 0) => `https://q1.qlogo.cn/g?b=qq&s=${size}&nk=${user_id}`,
           /** 禁言 */
           mute: async (time) => await api.set_group_ban(this.id, group_id, user_id, time)
         }
         e.group = { ...this.pickGroup(group_id) }
       } else {
         /** 私聊消息 */
-        e.log_message && common.info(this.id, `<好友:${sender?.nickname || sender?.card}(${user_id})> -> ${e.log_message}`)
+        e.log_message && common.info(this.id, `<好友:${sender?.card || sender?.nickname}(${user_id})> -> ${e.log_message}`)
         e.friend = { ...this.pickFriend(user_id) }
       }
     }
@@ -827,12 +821,7 @@ class Shamrock {
       if (e.group_id) {
         e.notice_type = 'group'
         e.group = { ...this.pickGroup(group_id) }
-        let fl = await Bot[this.id].api.get_stranger_info(Number(e.user_id))
-        e.member = {
-          ...fl,
-          card: fl?.nickname,
-          nickname: fl?.nickname
-        }
+        e.member = await Bot[this.id].api.get_stranger_info(Number(e.user_id))
       } else {
         e.notice_type = 'friend'
         e.friend = { ...this.pickFriend(user_id) }
@@ -933,7 +922,7 @@ class Shamrock {
             let qq = i.data.qq
             ToString.push(`{at:${qq}}`)
             let groupMemberList = Bot[this.id].gml.get(group_id)?.[qq]
-            let at = groupMemberList?.nickname || groupMemberList?.card || qq
+            let at = groupMemberList?.card || groupMemberList?.nickname || qq
             raw_message.push(`@${at}`)
             log_message.push(at == qq ? `@${qq}` : `<@${at}:${qq}>`)
           } catch (err) {
@@ -1184,15 +1173,22 @@ class Shamrock {
  * @param {boolean} quote - 是否引用回复
  */
   async sendReplyMsg (e, id, msg, quote) {
-    let { message, raw_message, node } = await this.getShamrock(msg)
+    let { message, raw_message, content, node } = await this.getShamrock(msg)
 
-    if (quote) {
+    if (quote && !content) {
       message.unshift({ type: 'reply', data: { id: e.message_id } })
       raw_message = '[回复]' + raw_message
     }
 
-    if (e.isGroup) return await api.send_group_msg(this.id, id, message, raw_message, node)
-    return await api.send_private_msg(this.id, id, message, raw_message, node)
+    /** 允许自行修改消息内容 */
+    if (content && Bot.processContent) {
+      ({ content, message } = await Bot.processContent(content, message, e))
+    }
+
+    if (content) content = await this.sendMarkdown(content, msg, e)
+
+    if (e.isGroup) return await api.send_group_msg(this.id, id, message, raw_message, node, content)
+    return await api.send_private_msg(this.id, id, message, raw_message, node, content)
   }
 
   /**
@@ -1201,8 +1197,13 @@ class Shamrock {
    * @param {string|object|array} msg - 消息内容
    */
   async sendFriendMsg (user_id, msg) {
-    const { message, raw_message, node } = await this.getShamrock(msg)
-    return await api.send_private_msg(this.id, user_id, message, raw_message, node)
+    let { message, raw_message, content, node } = await this.getShamrock(msg)
+    /** 允许自行修改消息内容 */
+    if (content && Bot.processContent) {
+      ({ content, message } = await Bot.processContent(content, message, { self_id: this.id }))
+    }
+    if (content) content = await this.sendMarkdown(content, msg)
+    return await api.send_private_msg(this.id, user_id, message, raw_message, node, content)
   }
 
   /**
@@ -1211,15 +1212,105 @@ class Shamrock {
    * @param {string|object|array} msg - 消息内容
    */
   async sendGroupMsg (group_id, msg) {
-    const { message, raw_message, node } = await this.getShamrock(msg)
-    return await api.send_group_msg(this.id, group_id, message, raw_message, node)
+    let { message, raw_message, content, node } = await this.getShamrock(msg)
+    /** 允许自行修改消息内容 */
+    if (content && Bot.processContent) {
+      ({ content, message } = await Bot.processContent(content, message, { self_id: this.id, group_id }))
+    }
+    if (content) content = await this.sendMarkdown(content, msg)
+    return await api.send_group_msg(this.id, group_id, message, raw_message, node, content)
+  }
+
+  /** 发送Markdown */
+  async sendMarkdown (content, msg, e) {
+    /** 随机生成1-10000 */
+    const group_id = Math.floor(Math.random() * 10000) + 10000
+    let messages = { type: 'node', data: { content: [{ type: 'markdown', data: { content } }] } }
+
+    let buttonData = {
+      rows: []
+    }
+    common.array(msg).filter(m => m.type === 'button').forEach(button => {
+      if (button.content?.rows) { // 收到的是icqq的button格式
+        // segment.button()
+        buttonData.rows = button.content?.rows
+      } else if (button.buttons) { // 收到的是铃音的button格式
+        buttonData.rows.push({ buttons: button.buttons })
+      }
+    })
+    messages.data.content.push({ type: 'button', data: buttonData })
+
+    common.array(msg).filter(m => m.type === 'button').forEach(button => {
+      if (!button.content?.rows) {
+        return
+      }
+      // 默认收到的是icqq的button格式
+      // segment.button()
+      let buttonData = {
+        rows: button.content?.rows
+      }
+      messages.data.content.push({ type: 'button', data: buttonData })
+    })
+
+    /** 构建一个普通e给按钮用 */
+    if (!e) {
+      e = { bot: Bot[this.id], message: common.array(msg) }
+      e.message.forEach(i => { if (i.type === 'text') e.msg = (e.msg || '') + (i.text || '').trim() })
+    }
+
+    /** 按钮 */
+    if (Button) {
+      const button = await this.button(e)
+      if (button && button?.length) messages.data.content.push(...button)
+    }
+    messages = [messages]
+    const node = await api.upload_multi_message(this.id, 'group', group_id, 0, messages)
+    return node.res_id
+  }
+
+  /** 按钮添加 */
+  async button (e) {
+    try {
+      for (let p of Button) {
+        for (let v of p.plugin.rule) {
+          const regExp = new RegExp(v.reg)
+          if (regExp.test(e.msg)) {
+            p.e = e
+            let button = await p[v.fnc](e)
+            const message = []
+            /** 无返回不添加 */
+            // if (button) return Array.from(button)
+            if (button) {
+              if (!Array.isArray(button)) button = [button]
+              const rows = []
+              button.forEach(item => {
+                rows.push({
+                  buttons: item.buttons
+                })
+              })
+              message.push({
+                type: 'button',
+                data: {
+                  rows
+                }
+              })
+              return message
+            }
+            return false
+          }
+        }
+      }
+    } catch (error) {
+      common.error('Lain-plugin', error)
+      return false
+    }
   }
 
   /**
    * 转换message为Shamrock格式
    * @param {string|Array|object} data - 消息内容
    */
-  async getShamrock (data) {
+  async getShamrock (data, Markdown = true) {
     /** 标准化消息内容 */
     data = common.array(data)
     let node = false
@@ -1231,6 +1322,8 @@ class Shamrock {
     /** chatgpt-plugin */
     if (data?.[0]?.type === 'xml') data = data?.[0].msg
 
+    /** 转为全局Markdown */
+    if (Markdown) return await this.Markdown(data)
     /** 转为Shamrock标准 message */
     for (let i of data) {
       if (i?.node) node = true
@@ -1349,8 +1442,8 @@ class Shamrock {
           }
           break
         case 'forward':
-          message.push(i)
-          raw_message.push(i.desc)
+          message.push({ type: 'text', data: { text: i.text } })
+          raw_message.push(i.text)
           break
         case 'node':
           node = true
@@ -1370,7 +1463,207 @@ class Shamrock {
     /** 合并转发 */
     if (node) raw_message = `[转发消息:${common.limitString(JSON.stringify(message), 100)}]`
 
-    return { message, raw_message, node }
+    return { message, raw_message, content: '', node }
+  }
+
+  /** 转为全局Markdown */
+  async Markdown (data) {
+    /** 保存 Shamrock标准 message */
+    let message = []
+    /** 打印的日志 */
+    let raw_message = []
+    let content = ''
+    let node = false
+    for (let i of data) {
+      if (i?.node) node = true
+      switch (i.type) {
+        case 'at':
+          if (i.qq === 'all') {
+            content += '[@全体成员](mqqapi://markdown/mention?at_type=everyone)'
+          } else {
+            if (!i.text) {
+              // 先尝试从redis拿缓存名称，不存在从陌生人接口拿缓存
+              let name = await redis.get(`lain:shamrock:at${i.qq}`)
+              if (!name) {
+                name = await api.get_stranger_info(this.id, i.qq)
+                name = name.card || name.nickname || i.qq
+                // 保存redis，过期时间7天
+                redis.set(`lain:shamrock:at${i.qq}`, name, { EX: 60 * 60 * 24 * 7 })
+                i.text = name
+              }
+            }
+            content += `[\`@${i.text.replace(/[\u0000-\u001F]/g, '')}\`](mqqapi://card/show_pslcard?src_type=internal&version=1&uin=${i.qq})`
+            raw_message.push(`<@${i.qq}>`)
+          }
+          break
+        case 'face':
+          message.push({ type: 'face', data: { id: Number(i.id) } })
+          raw_message.push(`<${faceMap[Number(i.id)]}>`)
+          break
+        case 'text':
+          // 使用正则表达式替换链接
+          content += i.text.replace(/https?:\/\/[^\s]+?(?=[\s\u4e00-\u9fa5]|$)/g, function (match) {
+            return '[🔗`' + match + '`](' + match + ')'
+          })
+          raw_message.push(i.text)
+          break
+        case 'file':
+          break
+        case 'record':
+          try {
+            let file = await Bot.Base64(i.file, { http: true })
+            /** 非链接需要先上传到手机 */
+            if (!/^http(s)?:\/\//.test(file)) {
+              const data = await api.download_file(this.id, `base64://${file}`)
+              file = `file://${data.file}`
+            }
+            message.push({ type: 'record', data: { file } })
+            raw_message.push(`<语音:${i.file}>`)
+          } catch (err) {
+            common.error(this.id, '语音上传失败:', err)
+            message.push({ type: 'text', data: { text: JSON.stringify(err) } })
+            raw_message.push(JSON.stringify(err))
+          }
+          break
+        case 'video':
+          try {
+            /** 笨比复读! */
+            if (i?.url) i.file = i.url
+            /** 视频文件需要先上传到手机 */
+            const { file } = await api.download_file(this.id, `base64://${await Bot.Base64(i.file)}`)
+            message.push({ type: 'video', data: { file: `file://${file}` } })
+          } catch (err) {
+            common.error(this.id, '视频上传失败:', err)
+            message.push({ type: 'text', data: { text: JSON.stringify(err) } })
+            raw_message.push(JSON.stringify(err))
+          }
+          raw_message.push(`<视频:${i.file}>`)
+          break
+        case 'image':
+          try {
+            /** 笨比复读! */
+            if (i?.url) i.file = i.url
+            i.file = await Bot.FormatFile(i.file)
+            const { width, height, url } = await Bot.imageToUrl(i.file)
+            content += `![图片 #${width} #${height}] (${url})`
+            raw_message.push(`<图片:${url}>`)
+          } catch (err) {
+            message.push({ type: 'text', data: { text: err.message } })
+            raw_message.push(err.message)
+          }
+          break
+        case 'poke':
+          message.push({ type: 'poke', data: { type: i.id, id: 0, strength: i?.strength || 0 } })
+          raw_message.push(`<${pokeMap[Number(i.id)]}>` || `<戳一戳:${i.id}>`)
+          break
+        case 'touch':
+          message.push({ type: 'touch', data: { id: i.id } })
+          raw_message.push(`<拍一拍:${i.id}>`)
+          break
+        case 'weather':
+          message.push({ type: 'weather', data: { code: i.code, city: i.city } })
+          raw_message.push(`<天气:${i?.city || i?.code}>`)
+          break
+        case 'json':
+          try {
+            let json = i.data
+            if (typeof i.data !== 'string') json = JSON.stringify(i.data)
+            message.push({ type: 'json', data: { data: json } })
+            raw_message.push(`<json:${json}>`)
+          } catch (err) {
+            message.push({ type: 'text', data: { text: JSON.stringify(err) } })
+            raw_message.push(JSON.stringify(err))
+          }
+          break
+        case 'music':
+          message.push({ type: 'music', data: i.data })
+          raw_message.push(`<音乐:${i.data.type},id:${i.data.id}>`)
+          break
+        case 'location':
+          try {
+            const { lat, lng: lon } = data
+            message.push({ type: 'location', data: { lat, lon } })
+            raw_message.push(`<位置:纬度=${lat},经度=${lon}>`)
+          } catch (err) {
+            message.push({ type: 'text', data: { text: JSON.stringify(err) } })
+            raw_message.push(JSON.stringify(err))
+          }
+          break
+        case 'share':
+          try {
+            const { url, title, image, content } = data
+            message.push({ type: 'share', data: { url, title, content, image } })
+            raw_message.push(`<链接分享:${url},标题=${title},图片链接=${image},内容=${content}>`)
+          } catch (err) {
+            message.push({ type: 'text', data: { text: JSON.stringify(err) } })
+            raw_message.push(JSON.stringify(err))
+          }
+          break
+        case 'forward':
+          message.push({ type: 'text', data: { text: i.text } })
+          raw_message.push(i.text)
+          break
+        case 'node':
+          node = true
+          message.push({ type: 'node', data: { ...i.data } })
+          raw_message.push(`<转发消息:${i.data.id}>`)
+          break
+        default:
+          // 为了兼容更多字段，不再进行序列化，风险是有可能未知字段导致Shamrock崩溃
+          message.push({ type: i.type, data: { ...i.data } })
+          raw_message.push(`<${i.type}:${JSON.stringify(i.data)}>`)
+          break
+      }
+    }
+    return { message, raw_message, content, node }
+  }
+
+  // 没啥用 改服务器了...
+  async uploadQQ (file) {
+    const buffer = await Bot.Buffer(file)
+    await this.sendApi('send_group_msg', {
+      group_id: Math.floor(Math.random() * 10000 + 1),
+      message: [
+        {
+          type: 'image',
+          data: {
+            file: 'base64://' + await Bot.Base64(buffer, { http: true })
+          }
+        }
+      ]
+    })
+    const { width, height } = sizeOf(buffer)
+    /** 使用crypto获取md5 */
+    const md5 = crypto.createHash('md5').update(buffer).digest('hex')
+    const url = `https://gchat.qpic.cn/gchatpic_new/0/0-0-${md5}/0?term=2`
+    return { width, height, url, md5 }
+  }
+
+  /**
+* 发送 WebSocket 请求
+* @param {string} action - 请求 API 端点
+* @param {string} params - 请求参数
+*/
+  async sendApi (action, params) {
+    const echo = crypto.randomUUID()
+    /** 序列化 */
+    const log = JSON.stringify({ echo, action, params })
+
+    common.debug(this.id, '[ws] send -> ' + log)
+    this.bot.send(log)
+
+    /** 等待响应 */
+    for (let i = 0; i < 1200; i++) {
+      const data = lain.echo[echo]
+      if (data) {
+        delete lain.echo[echo]
+        if (data.status === 'ok') return data.data
+        else common.error(this.id, data); throw data
+      } else {
+        await common.sleep(50)
+      }
+    }
+    throw new Error({ status: 'error', message: '请求超时' })
   }
 }
 

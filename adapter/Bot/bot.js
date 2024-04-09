@@ -7,6 +7,7 @@ import crypto from 'crypto'
 import common from '../../lib/common/common.js'
 import Cfg from '../../lib/config/config.js'
 import { fileTypeFromBuffer } from 'file-type'
+import path from 'path'
 
 /**
 * 传入文件，返回Buffer
@@ -315,12 +316,18 @@ Bot.toType = function (i) {
 */
 Bot.FormatFile = async function (file) {
   const str = function () {
-    if (fs.existsSync(file.replace(/^file:\/\//, ''))) {
+    if (file.includes('gchat.qpic.cn') && !file.startsWith('https://')) {
+      return `https://${file}`
+    } else if (file.startsWith('base64://')) {
+      return file
+    } else if (file.startsWith('http://') || file.startsWith('https://')) {
+      return file
+    } else if (fs.existsSync(path.resolve(file))) {
+      return `file://${path.resolve(file)}`
+    } else if (fs.existsSync(file.replace(/^file:\/\//, ''))) {
       return `file://${file.replace(/^file:\/\//, '')}`
     } else if (fs.existsSync(file.replace(/^file:\/\/\//, ''))) {
       return file.replace(/^file:\/\/\//, 'file://')
-    } else if (fs.existsSync(file)) {
-      return `file://${file}`
     }
     return file
   }
@@ -505,4 +512,85 @@ Bot.HandleURL = async function (msg) {
   await Promise.all(promises)
   message.unshift({ type: 'text', text: msg })
   return message
+}
+
+/** 调用ICQQ解析proto */
+Bot.ICQQproto = function (file) {
+  return core.pb.decode(Buffer.from(file.replace('protobuf://', ''), 'base64'))
+}
+
+/** 解析高清语音 */
+Bot.getPttUrl = async function (fid) {
+  const body = core.pb.encode({
+    1: 1200,
+    2: 0,
+    14: {
+      10: Bot.uin,
+      20: fid,
+      30: 2
+    },
+    101: 17,
+    102: 104,
+    99999: {
+      90300: 1,
+      91000: 2,
+      91100: 1
+    }
+  })
+  const rsp = core.pb.decode(await Bot[Bot.uin].sendUni('PttCenterSvr.pb_pttCenter_CMD_REQ_APPLY_DOWNLOAD-1200', body))[14]
+  if (rsp[10] !== 0) { logger.error(rsp, '获取语音文件地址错误') }
+  const url = new URL(rsp[30][50].toString())
+  url.host = 'grouptalk.c2c.qq.com'
+  url.protocol = 'https'
+  return url.toString()
+}
+
+/**
+ * 上传多媒体文件
+ * @param id 机器人id
+ * @param target_id 接受者id
+ * @param target_type  接受者类型：user|group
+ * @param file_data 文件数据：可以是本地文件(file://)或网络地址(http://)或base64或Buffer
+ * @param file_type 数据类型：1 image;2 video; 3 audio
+ */
+Bot.uploadMedia = async function (id, target_id, target_type, file_data, file_type, decode = false) {
+  if (typeof file_type === 'string') file_type = ['image', 'video', 'audio'].indexOf(file_type) + 1
+  target_id = target_id.split('-')[1] || target_id.split('-')[0]
+  const result = await Bot[id].sdk.uploadMedia(target_id, target_type, file_data, file_type, decode)
+  const file_info = await Bot.ICQQproto(result.file_info)
+  const file_uuid = await Bot.ICQQproto(result.file_uuid)
+  let ret = {
+    fileid: result.file_uuid,
+    base64: file_uuid[2].encoded.toString('hex').toUpperCase(),
+    size: file_uuid[3],
+    appid: file_uuid[4],
+    time: file_uuid[5],
+    name: String(file_info[1][2][1][1][1][4]),
+    sha1: String(file_info[1][2][1][1][1][3]).toUpperCase(),
+    file_info,
+    file_uuid
+  }
+  switch (file_type) {
+    case 1:ret = {
+      ...ret,
+      url: `http://${file_info[1][2][1][2][3].encoded.toString().replace('.com.cn','.com')}${file_info[1][3][34][30].encoded.toString().replace(/_/g, "%5F")}`,
+      width: file_info[1][2][1][1][1][6],
+      height: file_info[1][2][1][1][1][7],
+      target_id: file_info[1][2][1][6][202][1]
+    } 
+    break
+    case 2: ret = {
+      ...ret,
+      width: file_info[1][2][1][1][1][6],
+      height: file_info[1][2][1][1][1][7],
+      length: file_info[1][2][1][1][1][8]
+    }
+    break
+    case 3: ret = {
+      ...ret,
+      length: file_info[1][2][1][1][1][8]
+    }
+    break
+  }
+  return ret
 }

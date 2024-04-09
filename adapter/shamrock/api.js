@@ -640,6 +640,33 @@ let api = {
   },
 
   /**
+   * 发送合并转发
+   * @param {string} id - 机器人QQ 通过e.bot、Bot调用无需传入
+   * @param {'group'|'private'|'less'|'guild'} message_type - 类型
+   * @param {number} group_id - 发送到的目标群号
+   * @param {number} user_id - 发送到的目标qq
+   * @param {object[]} messages  - 合并转发消息集
+   * @param {boolean} no_send - 只上传不发送
+   */
+  async send_forward_msg (id, message_type, group_id, user_id, messages, no_send = false) {
+    const params = { group_id, messages, no_send }
+    return await this.SendApi(id, 'send_forward_msg', params)
+  },
+
+  /**
+   * 上传合并转发
+   * @param {string} id - 机器人QQ 通过e.bot、Bot调用无需传入
+   * @param {'group'|'private'|'less'|'guild'} message_type - 类型
+   * @param {number} group_id - 发送到的目标群号
+   * @param {number} user_id - 发送到的目标qq
+   * @param {object[]} messages  - 合并转发消息集
+   */
+  async upload_multi_message (id, message_type, group_id, user_id, messages) {
+    const params = { group_id, messages }
+    return await this.SendApi(id, 'upload_multi_message', params)
+  },
+
+  /**
   * 发送群聊合并转发
   * @param {string} id - 机器人QQ 通过e.bot、Bot调用无需传入
   * @param {number} group_id - 发送到的目标群号
@@ -662,18 +689,6 @@ let api = {
   },
 
   /**
- * 上传合并转发
- * @param {string} id - 机器人QQ 通过e.bot、Bot调用无需传入
- * @param {object[]} messages  - 合并转发消息集
- */
-  async upload_multi_message (id, messages) {
-    // 随机生成100-110的群号
-    const group_id = Math.floor(Math.random() * 10) + 100
-    const params = { group_id, message_type: 'group', messages }
-    return await this.SendApi(id, 'upload_multi_message', params)
-  },
-
-  /**
   * 获取被禁言的群成员列表
   * @param {string} id - 机器人QQ 通过e.bot、Bot调用无需传入
   * @param {number} group_id - 发送到的目标群号
@@ -690,7 +705,7 @@ let api = {
   * @param {object} message - 发送内容
   * @param {string} raw_message - 发送内容日志
   */
-  async send_private_msg (id, user_id, message, raw_message, node) {
+  async send_private_msg (id, user_id, message, raw_message, node, content) {
     let user_name
     try {
       user_name = Bot[id].fl.get(user_id)?.user_name
@@ -710,6 +725,17 @@ let api = {
 
     if (node) return await api.send_private_forward_msg(id, user_id, message)
 
+    if (content) {
+      await this.SendApi(id, 'send_msg_by_resid', {
+        res_id: content,
+        peer_id: user_id,
+        message_type: 'private'
+      })
+    }
+
+    /** 检查是否为假 */
+    if (!message || !message.length) return false
+
     const params = { user_id, message }
     const data = await this.SendApi(id, 'send_private_msg', params)
     /** 储存自身发送的消息 */
@@ -728,7 +754,7 @@ let api = {
   * @param {object} message - 发送内容
   * @param {string} raw_message - 发送内容日志
   */
-  async send_group_msg (id, group_id, message, raw_message, node) {
+  async send_group_msg (id, group_id, message, raw_message, node, content) {
     let group_name
     try {
       group_name = Bot[id].gl.get(group_id)?.group_name
@@ -747,6 +773,17 @@ let api = {
     }
 
     if (node) return await api.send_group_forward_msg(id, group_id, message)
+
+    if (content) {
+      await this.SendApi(id, 'send_msg_by_resid', {
+        res_id: content,
+        peer_id: group_id,
+        message_type: 'group'
+      })
+    }
+
+    /** 检查是否为假 */
+    if (!message || !message.length) return false
 
     const params = { group_id, message }
     const data = await this.SendApi(id, 'send_group_msg', params)
@@ -767,25 +804,24 @@ let api = {
   */
   async SendApi (id, action, params) {
     const echo = randomUUID()
-    common.debug(id, '[ws] send -> ' + JSON.stringify({ echo, action, params }))
-    Bot[id].ws.send(JSON.stringify({ echo, action, params }))
+    /** 序列化 */
+    const log = JSON.stringify({ echo, action, params })
 
-    for (let i = 0; i < 1200; i++) {
-      const data = await lain.echo.get(echo)
+    common.debug(id, '[ws] send -> ' + log)
+    Bot[id].ws.send(log)
+
+    /** 等待响应 */
+    for (let i = 0; i < 80; i++) {
+      const data = lain.echo[echo]
       if (data) {
-        lain.echo.delete(echo)
-        if (data.status === 'ok') {
-          return data.data
-        } else {
-          common.error('Lain-plugin', data)
-          throw data
-        }
+        delete lain.echo[echo]
+        if (data.status === 'ok') return data.data
+        else common.error(id, data); throw data
       } else {
         await common.sleep(50)
       }
     }
-
-    return '获取失败'
+    throw new Error({ status: 'error', message: '请求超时' })
   }
 }
 
