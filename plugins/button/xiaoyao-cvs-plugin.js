@@ -44,6 +44,7 @@ export default class Button {
   async user () {
     const button = [
       { label: '米币查询', data: '#米币查询' },
+      { label: '签到', data: '#签到' },
       { label: '抽卡记录', data: '#更新抽卡记录' },
 
       { label: '今日素材', data: '#今日素材' },
@@ -66,6 +67,7 @@ export default class Button {
       { label: '星铁签到', data: '#星铁签到' },
 
       { label: '米游社登录', data: '#扫码登录' },
+      { label: '签到', data: '#签到' }
     ]
     return Bot.Button(button)
   }
@@ -87,17 +89,23 @@ export default class Button {
     const button = [
       { label: '角色记录', data: `#${game}角色池记录` },
       { label: '武器记录', data: `#${game}${game ? '光锥' : '武器'}池记录` },
+      
       { label: '集录记录', data: `#${game}集录池记录` },
+      { label: '常驻记录', data: `#${game}常驻池记录` },
+      
       { label: '全部记录', data: `#${game}全部记录` },
-
+      { label: '米游社登录', data: '#扫码登录' },
+      
       { label: '角色统计', data: `#${game}角色池统计` },
       { label: '武器统计', data: `#${game}${game ? '光锥' : '武器'}池统计` },
+      
       { label: '集录统计', data: `#${game}集录池统计` },
+      { label: '常驻统计', data: `#${game}常驻池统计` },
+      
       { label: '全部统计', data: `#${game}全部统计` },
 
-      { label: '米游社登录', data: '#扫码登录' }
     ]
     if (!game) button.push({ label: '更新记录', data: '#更新抽卡记录' })
-    return Bot.Button(button, 4)
+    return Bot.Button(button, 3)
   }
 }
