@@ -130,7 +130,7 @@ export default class Button {
         { label: `${name}排行`, data: `/${game}${name}排行` },
 
         { label: `${name}面板`, data: `/${game}${name}面板` },
-        { label: '极限面板', data: `/${game}${name}极限面板` },
+        { label: '极限面板', data: `/${name}极限面板` },
       ]
       button.push(...Bot.Button(list, 2))
       const list2 = [
