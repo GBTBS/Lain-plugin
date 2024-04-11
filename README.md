@@ -30,7 +30,7 @@ git clone --depth=1 https://gitee.com/Zyy955/Lain-plugin ./plugins/Lain-plugin
 
 Github：
 ```
-git clone --depth=1 https://github.com/Zyy955/Lain-plugin ./plugins/Lain-plugin
+git clone --depth=1 https://github.com/GBTBS/Lain-plugin ./plugins/Lain-plugin
 ```
 
 ## 2.安装依赖
