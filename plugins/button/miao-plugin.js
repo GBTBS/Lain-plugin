@@ -80,7 +80,7 @@ export default class Button {
 
     const list2 = []
     for (let role of roleList)
-      list2.push({ label: role, data: `/${e.game === 'sr' ? '星铁' : '原神'}${role}面板` })
+      list2.push({ label: role, data: `/${e.game === 'sr' ? '' : ''}${role}面板` })
     button.push(...Bot.Button(list2, 2))
     return button
   }
